@@ -1,0 +1,20 @@
+# Block giant data files and raw data dumps
+data/
+results/
+*.json
+*.csv
+*.tsv
+*.xlsx
+
+# Block Windows system clutter
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Block Python environment / IDE artifacts
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.vscode/
+.env
+.conda_env/
