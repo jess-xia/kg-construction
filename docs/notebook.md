@@ -93,6 +93,9 @@ Understand how NER and RE works in Pubtator 3. What pretrained model did they us
     * BioREx requires entity spans - Uses entity spans present in text when available. If not, Pubtator annotated entity spans are used.
     * BioREx generates all possible entity pairs and for each pair creates an instance of the text, the two entities and boundary tags altogether wrapped in a prompt.
 * iKraph is trained using BioRED data as well, this is described on their Github (https://github.com/myinsilicom/iKraph/tree/main)
+    *  Their team, JZhangLab@FSU, participated in the challenge NIH organized the LitCoin natural language processing (NLP) challenge between Nov 2021 and Feb 2022 and won first place
+    *  In the summer of 2023, we also participated in the BioRED track of the BioCreative Challenge VIII. In the end-to-end KG construction task, our team also achieved the highest score (https://doi.org/10.1101/2023.10.13.562216) --> Table 1 shows that iKraph is team 156. But strangely there is no mention of iKraph from this paper (https://academic.oup.com/database/article/doi/10.1093/database/baae069/7729400#484143431) where they only mention that BioREx is the top performer
+    * I understand now (https://zenodo.org/records/10351131): BioREx was used as a baseline result. On the BioCreative task competition, iKraph was the top performer. Even outperforming BioREx 
 * Few-Shot Biomedical Relation Extraction with Large Language Models: A Viable Alternative to Supervised Learning? Mraz 2026 (https://arxiv.org/pdf/2606.15412)
     * This paper clearly describes some of what I found in BioRED: Imbalanced relation type distribution with Association, Positive Correlation, and Negative Correlation accounting for more than 95% of all relation instances and ambiguity of the association class
     * Compared between two methods of prompting: Pairwise classification and joint generation. Joint generation reduces computational costs by 25x
@@ -111,6 +114,8 @@ Understand how NER and RE works in Pubtator 3. What pretrained model did they us
     * This paper was later cited by: Enhancing biomedical relation extraction with directionality, 2025 July (https://doi.org/10.1093/bioinformatics/btaf226)
         * The authors performed instructional fine-tuning of the LLM (Figure 3) which resulted in a huge jump in performance (Table 2)
         * This seems suspicious to me as it is less instruction fine tuning and more structured output. I do not expect this alone to result in such a large jump in performance. It is nearly comparable to BioREx. This suggests that the concerns from the 2024 August paper are not major, but could be dramatically improved rather simply. But based on my hypotheses on why the BioRED dataset may be of concern, I do not think simple instructional fine tuning is sufficient.
+* LLMs have been used for data augmentation (https://zenodo.org/records/10117973)
+    * Typically involving paraphasing input text to create similar sentences in the same context
 
 ### Objective
 Evaluate the annotation quality of BioRED. Look at the distribution of the relation types in the BioRED set. 
@@ -129,3 +134,35 @@ The distribution of the relation types in the BioRED set is similar to that in t
     * Across the whole BioREx training set, the percentage of papers with 0 relations extracted is 26.88%
     * This is further evidence that the issue is in the number of "None" labels
 * The distribution of relation type counts in BioRED is similar to the BioREx training set and the Pubtator distribution. 
+* Idea: Look at interannotator consensus when it comes to annotating relation types with different LLMs. Take average? Use each set of annotations for training?
+* iKraph seems to be trained on BioRED without all the none annotations. It has also been run on the entirety of Pubmed. The next logical step may be to look at all the iKraph annotations and look at the distribution of relation types. I expect much fewer papers with 0 relations extracted. 
+
+
+## 2026-06-30
+### Objective
+Download and analyze iKraph data, survey the distribution of relation types
+
+### Expectation
+There are much fewer "none" values in the iKraph dataset compared to Pubtator 3. Majority of relations remains to be "associate"
+
+### What I did
+```bash
+# Download the full iKraph data file
+curl -o data/00_raw/ikraph/iKraph_full.tar.gz https://zenodo.org/records/14851275/files/iKraph_full.tar.gz
+
+# Navigate to the directory of the iKraph file and extract from compressed file
+tar -xvf iKraph_full.tar.gz
+
+# Delete the original compressed file
+rm iKraph_full.tar.gz
+```
+* See `01_pubtator_metrics.ipynb`
+    * "iKraph Relation Type Distribution"
+
+### Findings
+* Similar to what I found with Pubtator, nearly 70% of all papers had 0 extractions.
+* The reason this is the case is likely that when training they took all the entity pairs in the abstract and assigned them the relation none when there was no relation explicitly specified for the pair. Would need to look into how they did the training
+    * In BioRED the median number of entities per paper is 10 and the median number of relations per paper is 8 - based on my analysis here `BioRED Relation Type Distribution`
+    * From 10 entities, the number of unique entity pairs is 10 choose 2 = 45
+    * The median number of "none" relations is 45-8 = 37. 
+    * The median percentage of "none" relations is 37/45 = 82%
