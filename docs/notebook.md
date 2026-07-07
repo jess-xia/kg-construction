@@ -161,8 +161,146 @@ rm iKraph_full.tar.gz
 
 ### Findings
 * Similar to what I found with Pubtator, nearly 70% of all papers had 0 extractions.
+    * It is not the extension of the BioRED dataset in BioREx that is the issue.
+    * BioRED is the issue
 * The reason this is the case is likely that when training they took all the entity pairs in the abstract and assigned them the relation none when there was no relation explicitly specified for the pair. Would need to look into how they did the training
     * In BioRED the median number of entities per paper is 10 and the median number of relations per paper is 8 - based on my analysis here `BioRED Relation Type Distribution`
     * From 10 entities, the number of unique entity pairs is 10 choose 2 = 45
     * The median number of "none" relations is 45-8 = 37. 
     * The median percentage of "none" relations is 37/45 = 82%
+* "None" is the hidden label being used in training, and it seems to be overpowering the other labels.
+* Next step: Manually look at the BioRED annotations. 
+    * Are the annotations accurate? Are they comprehensive? Are they as granular as they can be?
+
+
+## 2026-07-03
+### Objective
+Manually go through some BioRED annotations and assess their informativeness and accuracy. 
+
+### Case Studies
+Going sequentially down the list of PMIDs in Train.PubTator
+#### 10491763
+* Annotations
+    * HNF-6 Association Type II diabetes mellitus
+    * glucose Positive_Correlation insulin
+    * glucose Association Type II diabetes mellitus
+* Main findings of the paper
+    * HNF-6 mutations not associated with Type II diabetes 
+    * HNF-6 mutations not associated with changes in insulin responses to glucose
+* Notes:
+    * This abstract contains stats and methods descriptions. Triples cannot be easily extracted except from the conclusion.
+    * In a way, HNF-6 Association Type II diabetes mellitus almost contradicts what the paper finds. The finding is that there is no association but "not associated" is not a relation type in the list
+    * It is unclear how glucose Positive_Correlation insulin is extracted
+#### 10661407
+* Annotations
+    * Langerin Bind mannose
+* Notes:
+    * The only two entities identitied by Pubtator 3 in this abstract are Langerin and mannose. This extraction accurately captures their relationship
+    * Another possible extraction would be "Langerin associated with BG" but Birbeck granules are not extracted. Birbeck granules maps to "Langerhans' granule" in UMLS
+#### 10788334
+* Annotations
+    * breast cancer, ovarian cancer, breast-ovarian cancer, BRCA1 Positive_Correlation 5382insC, 4153delA, C61G
+    * BRCA1 Association breast cancer, ovarian cancer, breast-ovarian cancer, BRCA1 abnormalities
+* Notes:
+    * Again, this paper is rather epidemiological with lots of numbers and methods descriptions. 
+    * For the most part i would say these triples extracted are accurate
+#### 11009181
+* Annotations
+    * levodopa Positive_Correlation dyskinesias
+    * apomorphine Negative_Correlation levodopa, dyskinesias, Parkinson's disease
+* Notes:
+    * I would say these are mostly accurate
+
+### Findings
+* The annotations are generally accurate, nothing too concerning. 
+* Question: How were the papers selected in the BioRED dataset? Are they clinical papers?
+    * Randomly sampled articles from several existing datasets (i.e. NCBI Disease, NLM-Gene, GNormPlus, BC5CDR and tmVar)
+    * Look into the MeSH terms of these papers. Look into the types of papers these are. Primary research? Review?
+
+### Objective
+Look into the types of papers included in the BioRED corpus.
+
+### Findings
+* See `BioRED Relation Type Distribution` in `01_pubtator_metrics.ipynb`
+* Approximately 15-20% of papers are clinical
+* Almost all papers are primary papers rather than review articles --> this is good for KG construction.
+* There are many medical genetics/genomics papers. Terms like Mutation (15.83%), Genotype (15.33%), Polymorphism, Single Nucleotide (14.33%), and Genetic Predisposition to Disease (9.67%) dominate the non-demographic tags
+
+## 2026-07-06
+### Brainstorming
+* I do not want to develop a new architecture/framework
+* Rather, show that LLM derived synthetic training data can be used to improve the performance of existing frameworks for relation extraction
+* Triple extraction consists of two parts: NER and RE
+* NER and normalization is a nontrivial task, yet not a particularly challenging task
+    * Current tools e.g. Pubtator 3 can do a decent job at it, with reasonable coverage of 6 entity types (genes/proteins, chemicals, diseases, species, genetic variants, and cell lines)
+    * What can be improved on is phenotypic entities e.g. "angiogenesis", "invasion", but that would require large amounts of training data
+    * NER requires many steps but in itself is not a challenging problem as it is primarily a string matching task that does not require much logic
+    * If a RE pipeline works well for a given set of entities, it likely can work well for other entities as well
+* What may be interesting and publishable is if LLMs can be used to generate synthetic data for training smaller transformer e.g. BERT models and result in better accuracy and coverage than training on manual annotations alone for relation extraction
+    * I could compare between the different LLMs e.g. chatgpt, gemini, claude 
+    * I could determine the rate of improvement with increasing size of annotated training corpus
+    * My evaluation could be against PubMedQA. What else?
+* To read:
+    * Tuning for clinical concept and relation extraction: https://github.com/jkbmrz/few-shot-biore.
+* Tentative Approach
+    * Use the same pretrained model and transformer architecture as BioREx. Can start with just the BioRED dataset, use this one which is larger and contains 1000 abstracts (https://academic-oup-com.myaccess.library.utoronto.ca/database/article/doi/10.1093/database/baae069/7729400)
+    * My hypothesis is that LLM annotated triples are similarly if not more effective than human annotations for training a transformer for relation extraction
+        * First, I must see how LLM extracted triples compare directly to BioRED annotations. Garbage in garbage out. I must have some degree confidence regarding the quality of these triples compared directly. From this paper https://academic-oup-com.myaccess.library.utoronto.ca/database/article/doi/10.1093/database/baae069/7729400 it seems that GPT 3.5 and GPT 4 have high recall for recognizing entity pairs. Though the perform very poorly on all other measures.
+        * Fine tuning of these LLMs drastically boosted performance to being almost comparable to BioREx. https://academic-oup-com.myaccess.library.utoronto.ca/bioinformatics/article/41/Supplement_1/i68/8199369#525745429
+    * Ignore directionality for now. Directionality is not very important for the BioRED schema. 
+    * The BioRED schema is ok. The problem is Pubtator does not perform nearly as well as it is advertised to.
+    * LLMs have been used for dataset augmentation. Generating paraphrases and different wordings of the same relations
+        * https://arxiv.org/pdf/2405.20787
+        * https://www-sciencedirect-com.myaccess.library.utoronto.ca/science/article/pii/S0010482525006365#bib43
+    * Analyses to do:
+        1. Directly feed in abstracts to Gemini and prompt it to extract relations following the BioRED schema given entities extracted by Pubtator 3
+            * Evaluate precision, recall for entity pairs (regardless of order and relation type) and for entity pairs + relation type
+            * Look at the distribution of relation type frequencies
+        2. Use BioRED annotations and LLM annotations to separately train two BERT models for relation extraction
+            * Match training set sizes then vary them. See if an increase in LLM annotated abstracts can improve performance
+            * Aggregate performance across all classes but also look at each relation type separately
+            * Also look at entity pairs without the relation type. If the model can more accurately predict entity pairs that is an improvement as well
+            * Compare their performance when used as context for PubMedQA
+            * Can compare across different LLMs
+            * Can compare LLM-based augmentation vs LLM synthetic data generation. 
+
+### Objective
+Assess the quality of LLM-extracted relations using the BioRED dataset. If they are comparable to the manual annotations, that is a good sign meaning they are likely suitable to be used to fine tune the pretrained model. If they are drastically different, I will likely need to rethink the comparison. Refer to prompts from these papers: https://arxiv.org/pdf/2606.15412 (https://github.com/jkbmrz/few-shot-biore/blob/main/utils/prompt/make.py), https://academic-oup-com.myaccess.library.utoronto.ca/database/article/doi/10.1093/database/baae069/7729400, https://academic-oup-com.myaccess.library.utoronto.ca/bioinformatics/article/41/Supplement_1/i68/8199369#525745429. Look at primarily the first paper. 
+* Note:
+    * https://github.com/jkbmrz/few-shot-biore/blob/main/utils/prompt/make.py this source did not describe each relation type but assumed that the LLM understood
+
+### What I did
+* See `02_LLM_RE.ipynb`
+* Downloaded the 1000 abstract dataset from BioRED.
+```bash
+# Create directory
+mkdir -p data/00_raw/BioRED
+
+# Navigate to it
+cd data/00_raw/BioRED
+
+# Download only Subtask 1 files
+curl -O https://ftp.ncbi.nlm.nih.gov/pub/lu/BC8-BioRED-track/BC8_BioRED_Subtask1_BioCJSON.zip
+curl -O https://ftp.ncbi.nlm.nih.gov/pub/lu/BC8-BioRED-track/BC8_BioRED_Subtask1_BioCXML.zip
+curl -O https://ftp.ncbi.nlm.nih.gov/pub/lu/BC8-BioRED-track/BC8_BioRED_Subtask1_PubTator.zip
+curl -O https://ftp.ncbi.nlm.nih.gov/pub/lu/BC8-BioRED-track/BC8_BioRED_Subtask1_Test_Set.zip
+
+# Extract zip files
+unzip "*.zip"
+
+# Extract tar files
+tar -xvf biored_re_model.tar
+tar -xvf biored_re_source_code.tar
+
+pip install bioc
+```
+
+### What I found
+* I performed triple extraction on a set of 10 abstracts following the BioRED annotation guidelines as best I could
+    * I compared between Gemini 2.5 Flash and Gemini 2.5 Pro
+    * Pro used slightly fewer output tokens (60k vs 68k)
+    * But cost 3x more (0.03USD vs 0.01 per abstract)
+    * F1 score for entity pair match was identical
+    * F1 score for entity pair + relation type match was very slightly higher (0.46 vs 0.42)
+    * Relation type distribution was near identical between the two models. Comparing between Gemini and the manual annotations, there are fewer "association" relations and more "positive_correlation" and "negative_correlation" 
+* Given the cost-benefit comparison, I will stick to Gemini 2.5 Flash for now
