@@ -1,6 +1,6 @@
 # Block giant data files and raw data dumps
 data/
-results/
+outputs/
 *.json
 *.csv
 *.tsv

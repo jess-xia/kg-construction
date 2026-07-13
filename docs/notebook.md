@@ -294,13 +294,41 @@ tar -xvf biored_re_source_code.tar
 
 pip install bioc
 ```
+* `result_biored_relation_batch_0707_1020.jsonl` is the result of the initial prompt where I do not emphasize the requirement to choose from the 7 relation types. Gemini 2.5 Flash used.
+* `result_biored_relation_batch_0707_1311.jsonl` is the result where I included the requirement to choose from the 7 relation types. Did not seem to help much, there are still many entity pairs that I don't want being extracted. I address this by filtering them out. Gemini 2.5 Flash used.
+* `result_biored_relation_batch_0707_1501.jsonl`. Same prompt as `result_biored_relation_batch_0707_1311.jsonl` but Gemini 2.5 pro is used.
+* `result_biored_relation_batch_0708_1030.jsonl`. Same prompt as previous. Ran all 600 abstracts of BioRED through Gemini 2.5 Flash
 
 ### What I found
-* I performed triple extraction on a set of 10 abstracts following the BioRED annotation guidelines as best I could
-    * I compared between Gemini 2.5 Flash and Gemini 2.5 Pro
+* I performed triple extraction on a set of 10 abstracts following the BioRED annotation guidelines as best I could comparing between Gemini 2.5 Flash and Gemini 2.5 Pro
     * Pro used slightly fewer output tokens (60k vs 68k)
     * But cost 3x more (0.03USD vs 0.01 per abstract)
     * F1 score for entity pair match was identical
     * F1 score for entity pair + relation type match was very slightly higher (0.46 vs 0.42)
     * Relation type distribution was near identical between the two models. Comparing between Gemini and the manual annotations, there are fewer "association" relations and more "positive_correlation" and "negative_correlation" 
+    * One difference between the two models is that Gemini 2.5 Pro may be better at following instructions
+        * Raw triples extracted by Flash and Pro were 77 and 66 respectively
+        * After filtering for only the 7 relation entity type pairs we were interested in, there were 57 and 59 remaining
+        * More relations from Gemini 2.5 flash had to be filtered out
+        * But after filtering, the performance is rather similar. 
 * Given the cost-benefit comparison, I will stick to Gemini 2.5 Flash for now
+* After running all 600 abstracts through Gemini 2.5 Flash, I saw a similar trend as when I ran just the 10 abstract trial
+    * Gemini predicted fewer "association" and more "positive correlation" and negative correlation"
+    * The individual relation type metrics are comparable to the publication https://arxiv.org/pdf/2606.15412 (Table 3), in my results I find that cotreatment also has the highest F1 score followed by negative and positive correlation
+    * The difference between Gemini extractions and manual annotations is a combination of a shifted distribution of relation types from heavy on association to higher in positive and negative correlation as well as a mismatch is relation types predicted. 
+* What's reassuring is that the gemini extractions are not drastically different from the manual annotations.
+    * Still, most relations are association, positive correlation, and negative correlation
+    * Still, association type outnumbers positive correlation and negative correlation
+    * While the F1 scores for entity pair + relation type prediction is low (Micro F1 = 0.50, Macro F1 = 0.47), the F1 score for entity pair alone is much higher, 0.7
+
+## 2026-07-08
+### Ideas
+* Potential modifications to model architecture:   
+    * BioREx uses a marker-based pairwise encoding approach. Alternatively, I can try a shared encoding with span pooling approach whereby I take the embedding vectors of the two entities of interest, concatenate it with some context. Rather than feeding the entire sentence repeatedly into the model with the spans labelled
+    * BioREx performs extraction all in one go whereby the "none" label is included as one of the relation types. Alternatively, I can split relation extraction into two stages. First, classify whether or not a relation exists. And second, classify the specific relation.
+* The above modifications could potentially be good extensions. But they are not directly relevant to the question I am interested in.
+* First, I will replicate BioREx's architecture, changing only the training data.
+
+### Objective
+Figure out how BioREx/iKraph performed the training and learn how to do this on compute canada.
+
