@@ -332,3 +332,213 @@ pip install bioc
 ### Objective
 Figure out how BioREx/iKraph performed the training and learn how to do this on compute canada.
 
+## 2026-07-13
+### Objective
+Set up compute canada for fine tuning pretrained model. Start by replicating what was done with BioREx with the full harmonized dataset, then replicate BioREx pipeline using only the BioRED dataset. Finally, run BioREx pipeline on Gemini Triples.
+
+### What I did
+* Using the special allocation on Fir (rrg-hroest), runs GPU jobs very quickly
+    * Nibi showed no storage available. 
+    * Narval has 24T available. Tried using Narval but I had to wait for a really long time for my GPU job to run. 
+* Made a folder named biorex_replication
+* Create the project folder, clone the BioREx repository, download the datasets and pretrained model
+    * Note: The model was initially called PubmedBERT but as been changed to BiomedBERT. I addressed this by creating a symbolic link
+```bash
+# Create and navigate to project folder
+mkdir biorex_replication
+cd biorex_replication
+# Clone the official BioREx repository code into your workspace
+git clone https://github.com/ncbi/BioREx.git
+
+
+# Create a dedicated directory for your training and evaluation data
+mkdir datasets
+cd /home/jexia/biorex_replication/BioREx/datasets
+# Download the pre-converted biomedical relation extraction datasets from NCBI
+wget https://ftp.ncbi.nlm.nih.gov/pub/lu/BioREx/datasets.zip
+# Unzip the contents into the datasets folder and cleanly delete the zip archive
+unzip datasets.zip
+rm datasets.zip
+
+
+# Create a folder named microsoft to store the pubmedbert model in
+cd /home/jexia/biorex_replication/BioREx
+mkdir microsoft
+cd microsoft
+# Download PubMedBERT model
+pip install -U huggingface_hub
+# Make and Navigate to the microsoft folder in BioREx
+hf download microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract \
+    --local-dir BiomedNLP-BiomedBERT-base-uncased-abstract
+
+# Create a symbolic link
+cd /home/jexia/biorex_replication/BioREx/microsoft
+ln -s BiomedNLP-BiomedBERT-base-uncased-abstract \
+      BiomedNLP-PubMedBERT-base-uncased-abstract
+```
+* Create the virtual environment
+```bash
+# Need to load python and arrow before setting up virtual environment
+# Need to run this every time before launching the virtual environment
+module load gcc arrow/24.0.0 python/3.12
+
+# Create an isolated virtual environment named 'biorex_env'
+virtualenv --no-download --system-site-packages biorex_env
+
+# Activate the environment (your prompt will change to show '(biorex_env)')
+source biorex_env/bin/activate
+
+# Upgrade essential package management tools to prevent installation bugs
+pip install --upgrade pip setuptools wheel
+```
+* Install package requirements
+    * `avail_wheels tensorflow --all-versions` shows that versions 2.19.1 and 2.17.0 are available, version 2.18.0 is not available in the wheelhouse but I can install it directly from the internet. Do so for both tensorflow and tf_keras using this command. Make sure virtual environment is active and then run it directly: `PYTHONPATH=""  pip install tensorflow==2.18.0 tf_keras==2.18.0`
+    * `protobuf == 5.29.2` and `tensorflow==2.17.0` are incompatible.  `tensorflow==2.17.0` requires `protobuf < 5.0.0`
+    * Then comment out the first two lines in the requirements file and then proceed with below
+```bash
+# 1. Back up the original requirements file just in case
+cp requirements.txt requirements.txt.bak
+
+# 2. Delete the strict tensorflow version line from the file
+nano requirements.txt
+
+# 3. Cleanly install the rest of the dependencies from the file
+# Make sure the virtual environment is active
+pip install -r requirements.txt
+
+pip install --no-index torch torchvision torchaudio
+# To verify successful torch installation
+python -c "import torch; print('Local PyTorch Version:', torch.__version__)"
+```
+* Check GPU connection
+```bash
+salloc --account=rrg-hroest_gpu --gres=gpu:h100:1 --cpus-per-task=2 --mem=16G --time=00:10:00
+
+# 1. Load the cluster's system modules
+module load gcc arrow/24.0.0 python/3.12 cuda/12.6
+
+# 2. Activate your environment
+source biorex_env/bin/activate
+
+# Check PyTorch CUDA Access
+python -c "import torch; print('CUDA Available:', torch.cuda.is_available()); print('GPU Device:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
+
+# Check a mock GPU calculation
+python -c "import torch; x = torch.rand(5, 3).cuda(); print('Calculation successful on GPU:', x.device)"
+```
+
+* Take a small slice of the data for testing
+    * I had initially just sliced the first 51 lines, but this might have sliced weird. Also! I did not slice the data in the ncbi_relation folder, those still had all the pmids --> I think this is what resulted in me getting zero predicted relations and 0s in the evaluation. The output was numeric scores/embeddings rather than relation classification decisions. 
+    * Rather than subset by line, subset for only the pmid 15485686 in the test sets and only 10491763 in the train sets. I got zero predictions again this time but I think that is because it predicted "no relation" for all the pairs
+```bash
+# Move your main dataset folder to a backup name
+mv datasets datasets_full
+
+# Create the nested directory structure to match datasets_full
+mkdir -p datasets/biorex/processed
+
+# Slice the training set (first 51 lines)
+# head -n 51 datasets_full/biorex/processed/train.tsv > datasets/biorex/processed/train.tsv
+# Slice the test set (first 51 lines)
+# head -n 51 datasets_full/biorex/processed/test.tsv > datasets/biorex/processed/test.tsv
+
+# Slice the training and test sets by PMID
+# Define your target PMID
+TRAIN_PMID="10491763"
+# Filter train and test sets by PMID
+grep -E "^${TRAIN_PMID}"$'\t' datasets_full/biorex/processed/train.tsv > datasets/biorex/processed/train.tsv
+grep -E "^${TRAIN_PMID}"$'\t' datasets_full/ncbi_relation/processed/train.tsv > datasets/ncbi_relation/processed/train.tsv
+
+TEST_PMID="15485686"
+grep -E "^${TEST_PMID}"$'\t' datasets_full/biorex/processed/test.tsv > datasets/biorex/processed/test.tsv
+grep -E "^${TEST_PMID}"$'\t' datasets_full/ncbi_relation/processed/test.tsv > datasets/ncbi_relation/processed/test.tsv
+# Slice the test PubTator file for TEST_PMID="15485686"
+sed -n "/^${TEST_PMID}|/,/^$/p" datasets_full/ncbi_relation/Test.PubTator > datasets/ncbi_relation/Test.PubTator
+
+# 1. Ensure the directory exists
+mkdir -p datasets/ncbi_relation
+
+# Copy the entire ncbi_relation folder from your full datasets backup
+cp -r datasets_full/ncbi_relation datasets/
+```
+* Run on an interactive GPU session `salloc --account=rrg-hroest_gpu --gres=gpu:h100:1 --cpus-per-task=2 --mem=32G --time=00:20:00` 
+    * Need to run `module load gcc arrow/24.0.0 python/3.12 cuda/12.6` and `source biorex_env/bin/activate` after activating the interactive session
+    * Tried `mem=8G` but got an `out of memory` error, trying again with `mem=32G`
+* `exit` is used to end an interactive session
+* Encountered a numpy error - The code in BioREx was written using an older version of NumPy where np.float was valid. Since your cluster environment is running a newer version, it throws an AttributeError because np.float was removed in favor of Python's built-in float
+    * In `/home/jexia/biorex_replication/BioREx/src/run_ncbi_rel_exp.py`, replace `np.float` with `float`
+    * Ran the below code again after launching an interactive GPU session
+    * Ran out of time in the interactive session, submitting a batch job instead
+* The below job took 12 minutes to train
+```bash
+# 1. Load your modules
+module load gcc arrow/24.0.0 python/3.12 cuda/12.6
+
+# 2. Activate your environment
+source biorex_env/bin/activate
+
+# 3. Kick off the test
+bash scripts/run_biorex_exp.sh 0
+# Do the same but with a batch job, must run from the BioREx folder
+sbatch ../jobs/submit_biorex.sh
+
+# To cancel all my jobs:
+scancel -u jexia
+```
+* This uses the full BioREx dataset for fine tuning which involves 10 epochs and 7.7k steps per epoch totalling 77k steps. It's taken more than 2 minutes per 10 steps. The estimated time needed to complete the entire fine tuning is 12 days. At 1 GPU, 4 CPU, 32GBs of memory
+    * Cancelled the job to save on compute, there is still 2 hours left of my 6 hour job, there is no way its finishing
+* What I really want is to just train on the biored dataset. I've pointed the training, dev, and test sets to the biored data only
+* Did not finish running, to speed up the training:
+    * `--num_train_epochs 3` (was 10 initially)
+    * `--save_steps 500` (was 10 initially)
+    * After this change, the total optimization steps decreased to 4.3k, but still it takes approximately 13.6s per step, and it would still take nearly 14h. There may be something wrong with the GPU which is expected to be a lot faster. Cancelled and reran with the below changes
+* Added cudnn to the modules that I load when running the job: `module load gcc arrow/24.0.0 python/3.12 cuda/12.6 cudnn/9.10.0.56`
+    * This still did not work, cancelled and added a diagnostic block to submit_biorex.sh to see if CUDA is working. It is working
+* Removed `CUDA_VISIBLE_DEVICES=$cuda_visible_devices` and `cuda_visible_devices=$1` which overrode what slurm was doing. Also added `--fp16 true \`
+    * Moving forward, I can also increase the number of CPUs from 4 to 8. Increasing to 8 means I have to wait longer for my job to start. Stick to 4 for now
+* Install CUDA-enabled tensorflow, removed and reinstalled the virtual environment. This worked. Took only 10 minutes to finish training
+    * Multi-class evaluation: F1-Score: 22.6% (Precision: 26.3%, Recall: 19.9%)
+    * Binary-relation evaluation: F1-Score: 54.8% (Precision: 63.6%, Recall: 48.1%)
+```bash
+# Deactivate current env
+deactivate
+
+# Remove the old environment folder (replace 'myenv' with your env name)
+rm -rf biorex_env
+
+# 1. Load GCC and Python module
+# module load gcc python/3.11
+# Load multiple modules at once, without these modules loaded I have trouble installing the packages
+module load gcc arrow/24.0.0 python/3.11 cuda/12.6
+
+# 2. Create a clean virtual environment
+virtualenv --no-download biorex_env
+
+# 3. Activate the environment
+source biorex_env/bin/activate
+
+# 4. Install Compute Canada's pre-compiled, GPU-optimized TensorFlow FIRST
+pip install --no-index tensorflow
+
+# 5. Install the rest of your required packages
+pip install tf-keras==2.19.0 transformers==4.47.1 accelerate==1.2.1 pandas==2.2.3 datasets==3.2.0 "sentencepiece!=0.1.92" protobuf==5.29.2 scispacy==0.5.5
+
+# 6. Install the SciSpacy model directly from S3
+pip install https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_core_sci_md-0.5.4.tar.gz
+
+# 2. Install click
+pip install click
+```
+* To improve scores. Changed `--num_train_epochs 3` to 10. Added `--learning_rate 2e-5 \` following the publication and `--warmup_ratio 0.1 \`
+    * This took 30 minutes, approximately 3 times what it took initially. 
+    * Multi-class evaluation: F1-Score: 51%
+    * Binary-relation evaluation: F1-Score: 69%
+* My folder under the projects folder (/home/jexia/projects/rrg-hroest/jexia) appeared so I moved everything there
+    * Need to delete and re-make the virtual environment
+```bash
+# Command to copy over the files
+rsync -avP /home/jexia/biorex_replication/ /home/jexia/projects/rrg-hroest/jexia/biorex_replication/
+
+# Remove original folder
+rm -rf /home/jexia/biorex_replication/
+```
