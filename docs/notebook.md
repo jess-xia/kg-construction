@@ -542,3 +542,297 @@ rsync -avP /home/jexia/biorex_replication/ /home/jexia/projects/rrg-hroest/jexia
 # Remove original folder
 rm -rf /home/jexia/biorex_replication/
 ```
+
+
+## 2026-07-28
+### Objective
+Train model using Gemini-generated triples and evaluate performance. 
+
+### What I did
+Using Gemini generated triples for the BioRED corpus:
+* Make the format match the original BioRED dataset so it is suitable for training. Make sure entities match as well
+* Evaluate the performance of this trained model on the Gemini Test set --> Expect this performance to be better because both are Gemini
+* Evaluate the performance of this trained model on the original Test set --> Expect this performance to be worse. This is a control 
+
+Created a new file `03_prepare_training_data.ipynb` and duplicated the `ncbi_relation` folder and the file contained, renaming it to `ncbi_relation_gemini_annotations`. I will edit the files in this folder directly (leave the PubTator files for now and focus on the processed .tsv files)
+* Upload the formatted tsv files to compute canada
+```powershell
+scp -r "D:\Users\Jessica\kg-construction\data\00_raw\biorex\ncbi_relation_gemini_annotations\processed" jexia@fir.alliancecan.ca:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/BioREx/datasets
+```
+```bash
+mv processed ncbi_relation_gemini_annotations
+```
+* Made a copy of run_biorex_exp.sh and modified it so the files it pointed to were the Gemini annotated files
+* Lost the files in the jobs folder, had to recreate the submit_biorex.sh file
+* The job was not running until I upped the memory to 64G and CPU to 8
+    * From the BioREx folder, run this: `sbatch ../jobs/submit_biorex_3.sh`
+* The results of the first iteration was very bad
+    * Overall F1-Score: 30.09%
+    * Overall Precision: 33.63%
+    * Overall Recall: 27.23%
+* Looked into the relation-type distribution in each train, test, validate dataset
+    * Found out I had over-written the test dataset of the original raw data, resulting in there being no difference between the original test dataset and my Gemini ones. 
+    * Because of this, I re-downloaded the original dataset: `curl -L -O https://ftp.ncbi.nlm.nih.gov/pub/lu/BioREx/datasets.zip`
+    * This shouldnt affect the results, assuming the Gemini generated test set was the one I used in the evaluation
+* I tried again but the performance is still very poor
+    * Overall F1-Score: 24.86%
+    * Overall Precision: 32.34%
+    * Overall Recall: 20.19%
+* I think there may just be too many negatives, I will set `--use_balanced_neg true \` and `--max_neg_scale 2 \` in `run_biorex_exp_gemini.sh`
+    * Originally it was `--use_balanced_neg false \`
+    * This samples the negative examples such that the ratio of negative to positive examples is 2:1. Currently it is around 4.5:1 for the original BioRED dataset and 5.8:1 for my current Gemini dataset
+    * Results in results_20260730_092808
+        * Precision, Recall, and F1 also increased dramatically: 46%, 52%, 49%
+* Decreased further to `--max_neg_scale 1 \` and reran `run_biorex_exp_gemini.sh`, all else kept the same as previous
+    * Results in results_20260730_101832
+    * This decreased performance. Precision fell slightly while Recall increased.
+    * Precision, Recall, and F1: 42%, 56%, 48%
+* Re-ran these two negative example settings on the original BioRED dataset
+    * First job is `--use_balanced_neg false \` in `results_biored_only_20260730_121354`
+        * `sbatch ../jobs/submit_biorex_original.sh`
+        * JOBID 51837436 --> finished after (need to change the naming so that I can match the output not only to the time but to the JOBID)
+        * Results saved here: results_biored_only_20260730_131534/ --> these results are unreliable because the two files overwrote each other
+        * Reran JOBID 51993338 --> results saved to results_biored_only_original_20260730_200021/
+            * 0.51, 0.51, 0.51; binned: 0.68, 0.68, 0.68
+    * Second job is `--use_balanced_neg true \` and `--max_neg_scale 2 \` in `results_biored_only_20260730_122823`
+        * `sbatch ../jobs/submit_biorex_neg_reduced.sh`
+        * JOBID 51837437
+        * Results saved here: results_biored_only_20260730_131534/ --> these results are unreliable because the two files overwrote each other
+        * Reran JOBID 51993822 --> results saved to results_biored_only_20260730_200453/
+            * 0.52, 0.53, 0.52; binned: 0.79, 0.71, 0.71
+
+
+## 2026-07-31
+### Objective
+Train model using Gemini-generated triples and evaluate performance. Vary the number of negative examples used in training. 
+
+### What I did
+* I've performed many iterations and have not stayed organized. Put my code and output outside the BioREx folder
+* Not working, went back to re-installing the virtual environment
+* First verify aspects of the code to make sure it is working:
+    * `salloc --account=rrg-hroest --gres=gpu:h100:1 --cpus-per-task=4 --mem=32G --time=00:30:00`
+    ```bash
+    cd /project/6049253/jexia/biorex_replication
+    source biorex_env/bin/activate
+
+    unset USE_TF
+    unset USE_TORCH
+
+    python -c "import tensorflow as tf; print('\n>>> GPU Detected:', tf.config.list_physical_devices('GPU'))"
+
+    cd /project/6049253/jexia/biorex_replication/BioREx
+    python -c 'import sys; sys.path.append("src"); import run_ncbi_rel_exp; print("\n>>> Imports successful!")'
+
+    cd /project/6049253/jexia/biorex_replication/BioREx
+
+    python src/run_ncbi_rel_exp.py \
+    --task_name biorex \
+    --train_file datasets/ncbi_relation_gemini_annotations/processed/train.tsv \
+    --dev_file datasets/ncbi_relation_gemini_annotations/processed/dev.tsv \
+    --test_file datasets/ncbi_relation_gemini_annotations/processed/test.tsv \
+    --use_balanced_neg false \
+    --max_neg_scale 0 \
+    --to_add_tag_as_special_token true \
+    --model_name_or_path microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract \
+    --output_dir test_interactive_run \
+    --num_train_epochs 1 \
+    --learning_rate 2e-5 \
+    --per_device_train_batch_size 16 \
+    --per_device_eval_batch_size 32 \
+    --do_train \
+    --fp16 true \
+    --logging_steps 5 \
+    --save_steps 50 \
+    --overwrite_output_dir true \
+    --max_seq_length 512
+    ```
+* Note: if use_balanced_neg is set to false, the number after does not matter, that code block is skipped
+#### [Job 52880918] - Gemini annotations all neg
+* **Command:** `sbatch scripts/submit_run_biored_gemini_neg_scale.sh gemini false 0 "Gemini annotations all neg"`
+
+#### [Job 52893913] - Gemini annotations neg reduced 2:1
+* **Command:** `sbatch scripts/submit_run_biored_gemini_neg_scale.sh gemini true 2 "Gemini annotations neg reduced 2:1"`
+
+#### [Job 52893973] - BioRED annotations all neg
+* **Command:** `sbatch scripts/submit_run_biored_gemini_neg_scale.sh biored false 0 "BioRED annotations all neg"`
+
+#### [Job 52894019] - BioRED annotations neg reduced 2:1
+* **Command:** `sbatch scripts/submit_run_biored_gemini_neg_scale.sh biored true 2 "BioRED annotations neg reduced 2:1"`
+
+
+## 2026-08-04
+### Objective
+Download and prepare PubMedQA data for inference using trained model. 
+
+### What I did
+* Downloaded the PubMedQA dataset from Github
+```bash
+mkdir -p data/pubmedqa/raw data/pubmedqa/processed
+
+curl -o data/pubmedqa/raw/ori_pqal.json \
+  https://raw.githubusercontent.com/pubmedqa/pubmedqa/master/data/ori_pqal.json
+```
+* Process the data to prepare it for inference using scripts/prepare_pubmedqa_inference.py
+    * Navigate to the biorex_replication parent folder and run `python scripts/prepare_pubmedqa_inference.py`
+    * This creates a tsv file called `test.tsv` located here `biorex_replication/data/pubmedqa/processed` which contains the columns pmid, text and question. The text is what is used for inference. Excludes the conclusion. 
+* Fetch the pmids which I will extract entities from `biorex_replication/scripts/extract_pmids.py`
+    * `python scripts/extract_pmids.py --test_tsv data/pubmedqa/processed/test.tsv --out_pmids data/pubmedqa/processed/pmids.txt`
+* With these PMIDs, fetch the PubTator files
+    * Need to install the requests package ```pip install requests```
+    * Created `scripts/fetch_pubtator.py`
+    * `python scripts/fetch_pubtator.py --pmids data/pubmedqa/processed/pmids.txt --out_pubtator data/pubmedqa/raw/pubmedqa_entities.PubTator`
+* The test file it expects is a TSV relation-pair format with columns for PMID, entity types, entity identifiers, and the tagged sentence text. 
+* From the PubTator files, fetch all unique entity types
+    * `awk -F'\t' 'NF==6 {print $5}' data/pubmedqa/raw/pubmedqa_entities.PubTator | sort | uniq -c`
+    * What was returned:
+        ```
+        17 CellLine
+        1798 Chemical
+        1 Chromosome
+        7 DNAMutation
+        9942 Disease
+        876 Gene
+        5 ProteinMutation
+        25 SNP
+        4715 Species
+        ```
+* I am only interested in Gene, Chemical, Disease entity types. 
+* Only interested in these entity type pairs:
+    ```
+                Entity_A           Entity_B
+    0  GeneOrGeneProduct  GeneOrGeneProduct
+    1     ChemicalEntity  GeneOrGeneProduct
+    2     ChemicalEntity            Disease
+    3     ChemicalEntity     ChemicalEntity
+    4            Disease  GeneOrGeneProduct
+    ```
+* These are the only entity pairs present in BioRED. The Pubtator annotation entity types need to be mapped
+    ```
+    sed -e 's/\tGene\t/\tGeneOrGeneProduct\t/g' \
+    -e 's/\tChemical\t/\tChemicalEntity\t/g' \
+    -e 's/\tDisease\t/\tDiseaseOrPhenotypicFeature\t/g' \
+    data/pubmedqa/raw/pubmedqa_entities.PubTator > data/pubmedqa/processed/pubmedqa_entities_litcoin.PubTator
+    ```
+* Convert the PubTator file to tsv
+    ``` bash
+    python -m spacy download en_core_web_sm
+
+    salloc --account=rrg-hroest --gres=gpu:h100:1 --cpus-per-task=4 --mem=32G --time=01:30:00
+
+    module load gcc arrow/24.0.0 python/3.11 cuda/12.6
+    source biorex_env/bin/activate
+
+    cd BioREx/src/dataset_format_converter/
+
+    python -c "
+    from convert_pubtator_2_tsv import convert_pubtator_to_tsv_file
+
+    tag_mapping = {
+        'Gene': 'GeneOrGeneProduct',
+        'Chemical': 'ChemicalEntity',
+        'Disease': 'DiseaseOrPhenotypicFeature'
+    }
+
+    litcoin_pairs = {
+        ('GeneOrGeneProduct', 'GeneOrGeneProduct'),
+        ('ChemicalEntity', 'GeneOrGeneProduct'),
+        ('ChemicalEntity', 'DiseaseOrPhenotypicFeature'),
+        ('ChemicalEntity', 'ChemicalEntity'),
+        ('DiseaseOrPhenotypicFeature', 'GeneOrGeneProduct')
+    }
+
+    convert_pubtator_to_tsv_file(
+        in_pubtator_file='../../../data/pubmedqa/raw/pubmedqa_entities.PubTator',
+        out_tsv_file='../../../data/pubmedqa/processed/pubmedqa_inference_ready.tsv',
+        src_tgt_pairs=litcoin_pairs,
+        spacy_model='en_core_web_sm',
+        has_end_tag=True,
+        task_tag='[LitCoin]',
+        normalized_type_dict=tag_mapping,
+        re_id_spliter_str=r'\,',
+        to_sentence_level=True
+    )
+    "
+    ```
+* Run inference. Created a script called submit_pubmedqa_inference.sh. Outputs both a tsv logits file and a PubTator file containing the entities and relations
+    * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_103551_job52880918_gemini_balfalse_neg0`
+    * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_113027_job52893913_gemini_baltrue_neg2`
+    * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_113359_job52893973_biored_balfalse_neg0`
+    * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_113359_job52894019_biored_baltrue_neg2`
+
+* Convert tsv file to pubtator. Created a script called submit_to_pubtator.sh
+    * `sbatch scripts/submit_to_pubtator.sh exp_20260804_103551_job52880918_gemini_balfalse_neg0`
+    * `sbatch scripts/submit_to_pubtator.sh exp_20260804_113027_job52893913_gemini_baltrue_neg2`
+    * `sbatch scripts/submit_to_pubtator.sh exp_20260804_113359_job52893973_biored_balfalse_neg0`
+    * `sbatch scripts/submit_to_pubtator.sh exp_20260804_113359_job52894019_biored_baltrue_neg2`
+    
+  
+
+python BioREx/src/utils/run_pubtator_eval.py --exp_option 'to_pubtator' \
+    --in_test_pubtator_file data/pubmedqa/raw/pubmedqa_entities.PubTator \
+    --in_test_tsv_file data/pubmedqa/processed/pubmedqa_inference_ready.tsv \
+    --in_pred_tsv_file /home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/pubmedqa_inference_results/test_results.tsv \
+    --out_pred_pubtator_file /home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/pubmedqa_inference_results/predict.pubtator
+
+
+
+module load gcc arrow/24.0.0 python/3.11 cuda/12.6
+source biorex_env/bin/activate
+
+export PYTHONPATH="/home/jexia/projects/rrg-hroest/jexia/biorex_replication/BioREx:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/BioREx/src:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/BioREx/src/utils:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/BioREx/src/dataset_format_converter:${PYTHONPATH}"
+
+python BioREx/src/utils/run_pubtator_eval.py --exp_option 'to_pubtator' \
+    --in_test_pubtator_file data/pubmedqa/raw/pubmedqa_entities.PubTator \
+    --in_test_tsv_file data/pubmedqa/processed/pubmedqa_inference_ready.tsv \
+    --in_pred_tsv_file /home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/pubmedqa_inference_results/test_results.tsv \
+    --out_pred_pubtator_file /home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/pubmedqa_inference_results/predict.pubtator
+
+* This script works, calculates the distibution of relation types directly from the tsv file.
+    * After running the above code to perform inference on the PubMedQA dataset, the results returned 100% No Relation
+    ```bash
+    python scripts/check_pred_distribution.py \
+    experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/pubmedqa_inference_results/test_results.tsv \
+    experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/model
+
+    python scripts/check_pred_distribution.py \
+    experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/results/out_results.tsv \
+    experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/model
+
+    python scripts/check_pred_distribution.py \
+    experiments/exp_20260804_113027_job52893913_gemini_baltrue_neg2/pubmedqa_inference_results/test_results.tsv \
+    experiments/exp_20260804_113027_job52893913_gemini_baltrue_neg2/model
+
+    python scripts/check_pred_distribution.py \
+    experiments/exp_20260804_113359_job52893973_biored_balfalse_neg0/pubmedqa_inference_results/test_results.tsv \
+    experiments/exp_20260804_113359_job52893973_biored_balfalse_neg0/model
+
+    python scripts/check_pred_distribution.py \
+    experiments/exp_20260804_113359_job52894019_biored_baltrue_neg2/pubmedqa_inference_results/test_results.tsv \
+    experiments/exp_20260804_113359_job52894019_biored_baltrue_neg2/model
+
+    exp_20260804_113359_job52893973_biored_balfalse_neg0
+
+    exp_20260804_113359_job52894019_biored_baltrue_neg2
+    ```
+
+
+* The script scripts/submit_pubmedqa_inference.sh performs the inference given a specific model
+    * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260731_104435_job52173517_gemini_baltrue_neg2`
+
+
+* Link Compute Canada account to Github to backup code
+```bash
+ssh-keygen -t ed25519 -C "your_email@example.com"
+
+# Display the public key
+cat ~/.ssh/id_ed25519.pub
+
+# Add the key to Github
+# Settings > SSH and GPG keys > New SSH key
+
+ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts
+
+ssh -T git@github.com
+Hi jess-xia! You've successfully authenticated, but GitHub does not provide shell access.
+
+```
