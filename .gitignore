@@ -18,3 +18,12 @@ __pycache__/
 .vscode/
 .env
 .conda_env/
+
+# Compute Canada Fir Files
+biorex_env/
+data/
+experiments/
+jobs/
+logs/
+results_*/
+BioREx/
