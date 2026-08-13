@@ -543,7 +543,6 @@ rsync -avP /home/jexia/biorex_replication/ /home/jexia/projects/rrg-hroest/jexia
 rm -rf /home/jexia/biorex_replication/
 ```
 
-
 ## 2026-07-28
 ### Objective
 Train model using Gemini-generated triples and evaluate performance. 
@@ -742,7 +741,7 @@ curl -o data/pubmedqa/raw/ori_pqal.json \
     }
 
     convert_pubtator_to_tsv_file(
-        in_pubtator_file='../../../data/pubmedqa/raw/pubmedqa_entities.PubTator',
+        in_pubtator_file='../../../data/pubmedqa/raw/pubmedqa_entities_litcoin.PubTator',
         out_tsv_file='../../../data/pubmedqa/processed/pubmedqa_inference_ready.tsv',
         src_tgt_pairs=litcoin_pairs,
         spacy_model='en_core_web_sm',
@@ -760,65 +759,93 @@ curl -o data/pubmedqa/raw/ori_pqal.json \
     * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_113359_job52893973_biored_balfalse_neg0`
     * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_113359_job52894019_biored_baltrue_neg2`
 
-* Convert tsv file to pubtator. Created a script called submit_to_pubtator.sh
-    * `sbatch scripts/submit_to_pubtator.sh exp_20260804_103551_job52880918_gemini_balfalse_neg0`
-    * `sbatch scripts/submit_to_pubtator.sh exp_20260804_113027_job52893913_gemini_baltrue_neg2`
-    * `sbatch scripts/submit_to_pubtator.sh exp_20260804_113359_job52893973_biored_balfalse_neg0`
-    * `sbatch scripts/submit_to_pubtator.sh exp_20260804_113359_job52894019_biored_baltrue_neg2`
-    
-  
-
-python BioREx/src/utils/run_pubtator_eval.py --exp_option 'to_pubtator' \
-    --in_test_pubtator_file data/pubmedqa/raw/pubmedqa_entities.PubTator \
-    --in_test_tsv_file data/pubmedqa/processed/pubmedqa_inference_ready.tsv \
-    --in_pred_tsv_file /home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/pubmedqa_inference_results/test_results.tsv \
-    --out_pred_pubtator_file /home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/pubmedqa_inference_results/predict.pubtator
-
-
-
-module load gcc arrow/24.0.0 python/3.11 cuda/12.6
-source biorex_env/bin/activate
-
-export PYTHONPATH="/home/jexia/projects/rrg-hroest/jexia/biorex_replication/BioREx:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/BioREx/src:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/BioREx/src/utils:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/BioREx/src/dataset_format_converter:${PYTHONPATH}"
-
-python BioREx/src/utils/run_pubtator_eval.py --exp_option 'to_pubtator' \
-    --in_test_pubtator_file data/pubmedqa/raw/pubmedqa_entities.PubTator \
-    --in_test_tsv_file data/pubmedqa/processed/pubmedqa_inference_ready.tsv \
-    --in_pred_tsv_file /home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/pubmedqa_inference_results/test_results.tsv \
-    --out_pred_pubtator_file /home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/pubmedqa_inference_results/predict.pubtator
-
-* This script works, calculates the distibution of relation types directly from the tsv file.
-    * After running the above code to perform inference on the PubMedQA dataset, the results returned 100% No Relation
+* The below script works, calculates the distibution of relation types directly from the tsv file.
+    * The relation type distribution changes depending on the dataset being assessed
     ```bash
     python scripts/check_pred_distribution.py \
     experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/pubmedqa_inference_results/test_results.tsv \
     experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/model
+    # Predicted label distribution:
+    # None                        2163  (100.0%)
 
     python scripts/check_pred_distribution.py \
     experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/results/out_results.tsv \
     experiments/exp_20260804_103551_job52880918_gemini_balfalse_neg0/model
+    # Predicted label distribution:
+    # None                        6918  (91.13%)
+    # Positive_Correlation         257  (3.39%)
+    # Association                  221  (2.91%)
+    # Negative_Correlation         195  (2.57%)
 
     python scripts/check_pred_distribution.py \
     experiments/exp_20260804_113027_job52893913_gemini_baltrue_neg2/pubmedqa_inference_results/test_results.tsv \
     experiments/exp_20260804_113027_job52893913_gemini_baltrue_neg2/model
+    # Predicted label distribution:
+    # None                        1447  (66.9%)
+    # Positive_Correlation         319  (14.75%)
+    # Negative_Correlation         199  (9.2%)
+    # Association                  128  (5.92%)
+    # Cotreatment                   50  (2.31%)
+    # Comparison                    17  (0.79%)
+    # Bind                           3  (0.14%)
+
+    python scripts/check_pred_distribution.py \
+    experiments/exp_20260804_113027_job52893913_gemini_baltrue_neg2/results/out_results.tsv \
+    experiments/exp_20260804_113027_job52893913_gemini_baltrue_neg2/model
+    # Predicted label distribution:
+    # None                        6391  (84.19%)
+    # Positive_Correlation         597  (7.86%)
+    # Association                  288  (3.79%)
+    # Negative_Correlation         249  (3.28%)
+    # Cotreatment                   26  (0.34%)
+    # Bind                          22  (0.29%)
+    # Comparison                    14  (0.18%)
+    # Conversion                     4  (0.05%)
 
     python scripts/check_pred_distribution.py \
     experiments/exp_20260804_113359_job52893973_biored_balfalse_neg0/pubmedqa_inference_results/test_results.tsv \
     experiments/exp_20260804_113359_job52893973_biored_balfalse_neg0/model
+    # Predicted label distribution:
+    # None                        2125  (98.24%)
+    # Negative_Correlation          22  (1.02%)
+    # Positive_Correlation          12  (0.55%)
+    # Association                    4  (0.18%)
+
+    python scripts/check_pred_distribution.py \
+    experiments/exp_20260804_113359_job52893973_biored_balfalse_neg0/results/out_results.tsv \
+    experiments/exp_20260804_113359_job52893973_biored_balfalse_neg0/model
+    # Predicted label distribution:
+    # None                        6454  (85.02%)
+    # Association                  557  (7.34%)
+    # Positive_Correlation         369  (4.86%)
+    # Negative_Correlation         183  (2.41%)
+    # Comparison                    16  (0.21%)
+    # Cotreatment                    8  (0.11%)
+    # Bind                           4  (0.05%)
 
     python scripts/check_pred_distribution.py \
     experiments/exp_20260804_113359_job52894019_biored_baltrue_neg2/pubmedqa_inference_results/test_results.tsv \
     experiments/exp_20260804_113359_job52894019_biored_baltrue_neg2/model
+    # Predicted label distribution:
+    # None                        1881  (86.96%)
+    # Positive_Correlation         112  (5.18%)
+    # Negative_Correlation          86  (3.98%)
+    # Association                   74  (3.42%)
+    # Comparison                     9  (0.42%)
+    # Cotreatment                    1  (0.05%)
 
-    exp_20260804_113359_job52893973_biored_balfalse_neg0
-
-    exp_20260804_113359_job52894019_biored_baltrue_neg2
+    python scripts/check_pred_distribution.py \
+    experiments/exp_20260804_113359_job52894019_biored_baltrue_neg2/results/out_results.tsv \
+    experiments/exp_20260804_113359_job52894019_biored_baltrue_neg2/model
+    # Predicted label distribution:
+    # None                        6477  (85.32%)
+    # Association                  490  (6.46%)
+    # Positive_Correlation         428  (5.64%)
+    # Negative_Correlation         169  (2.23%)
+    # Bind                          19  (0.25%)
+    # Comparison                     6  (0.08%)
+    # Cotreatment                    2  (0.03%)
     ```
-
-
-* The script scripts/submit_pubmedqa_inference.sh performs the inference given a specific model
-    * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260731_104435_job52173517_gemini_baltrue_neg2`
-
 
 * Link Compute Canada account to Github to backup code
 ```bash
@@ -833,6 +860,54 @@ cat ~/.ssh/id_ed25519.pub
 ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts
 
 ssh -T git@github.com
-Hi jess-xia! You've successfully authenticated, but GitHub does not provide shell access.
 
+# Initialize Git and connect to your repository
+cd ~/biorex_replication
+git init
+git remote add origin git@github.com:jess-xia/kg-construction.git
+git pull origin main --allow-unrelated-histories
+
+# Add files on Fir that I dont want to track to .gitignore
+biorex_env/
+data/
+experiments/
+jobs/
+logs/
+results_*/
+BioREx/
+
+git branch -M main
+git add .
+git commit -m "Add scripts directory from Compute Canada Fir and update gitignore"
+git push -u origin main
 ```
+
+## 2026-08-11
+### Objective
+Prepare inferred relations and evaluate on PubMedQA dataset
+
+### What I did
+* Download experiment folder with PubMedQA results to local for parsing and analysis: `scp -r jexia@fir.alliancecan.ca:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments ./`
+* Created new notebook `04_PubMedQA_analysis.ipynb` to analyze inference results
+* The high percentage of entity pairs belonging to the "no relation" type is still the major concern. 
+    * Even after restricting the negative to positive relation ratio to 2:1, of the 1000 pmids in the dataset, only 174 had a relation from model trained on Gemini and only 103 pmids in the dataset had a relation from the model trained on BioRED.  
+* I've previously generated triples for the PubMedQA dataset using a restricted Biolink relation type list. Using this relation type list, I've been able to extract relations for almost all the papers in PubMedQA. I want to try again using the restricted relation type extraction method of BioRED annotations. This would help me to understand if the reason so many entity pairs are assigned "no relation" because there really are no relations or because of the model design. After Gemini identifies the relations I can then go in and check manually. 
+    * The biggest issure right now I think is coverage. 
+* Check how many abstracts in PubMedQA dont even have the entity pairs we are interested in
+
+## 2026-08-12
+### Objective
+Re-prepare the tsv file for model inference. Previously, the Pubtator files and the tsv files generated that I used for inference contained the conclusion as well. This time I removed the conclusion and the entities in that section. GPT-4o mini inference cannot contain the conclusion because that would just give away the answer. 
+
+### What I did
+* Created script `04_PubMedQA_analysis.ipynb` and generated file `pubmedqa_entities_litcoin.PubTator` locally
+* Transferred this to fir to convert it into tsv format: `scp "D:\Users\Jessica\kg-construction\outputs\04_PubMedQA_analysis\pubmedqa_entities_litcoin.PubTator" jexia@fir.alliancecan.ca:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/data/pubmedqa/processed/`
+* Created shell script `submit_pubtator_to_tsv.sh`, run with command `sbatch scripts/submit_pubtator_to_tsv.sh`
+* Remove the current pubmedqa_inference results: `rm -rf exp_*/pubmedqa_inference_results`
+* Run inference. Created a script called submit_pubmedqa_inference.sh. Outputs both a tsv logits file and a PubTator file containing the entities and relations
+    * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_103551_job52880918_gemini_balfalse_neg0`
+    * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_113027_job52893913_gemini_baltrue_neg2`
+    * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_113359_job52893973_biored_balfalse_neg0`
+    * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_113359_job52894019_biored_baltrue_neg2`
+* Use the command `rsync -avzP --exclude='model/' --exclude='*/model/***' jexia@fir.alliancecan.ca:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments ./` to download the results excluding the model folder contents
+* Download experiment folder with PubMedQA results to local for parsing and analysis: `scp -r jexia@fir.alliancecan.ca:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments ./`
