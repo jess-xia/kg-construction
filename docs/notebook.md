@@ -659,6 +659,7 @@ Train model using Gemini-generated triples and evaluate performance. Vary the nu
 * **Command:** `sbatch scripts/submit_run_biored_gemini_neg_scale.sh biored true 2 "BioRED annotations neg reduced 2:1"`
 
 
+
 ## 2026-08-04
 ### Objective
 Download and prepare PubMedQA data for inference using trained model. 
@@ -911,3 +912,96 @@ Re-prepare the tsv file for model inference. Previously, the Pubtator files and 
     * `sbatch scripts/submit_pubmedqa_inference.sh exp_20260804_113359_job52894019_biored_baltrue_neg2`
 * Use the command `rsync -avzP --exclude='model/' --exclude='*/model/***' jexia@fir.alliancecan.ca:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments ./` to download the results excluding the model folder contents
 * Download experiment folder with PubMedQA results to local for parsing and analysis: `scp -r jexia@fir.alliancecan.ca:/home/jexia/projects/rrg-hroest/jexia/biorex_replication/experiments ./`
+* Taking another look at performance across the 4 models
+    * nano exp_20260804_103551_job52880918_gemini_balfalse_neg0/results/out_results.txt 
+        Overall 966     213     371     753     0.3647260273972603      0.2204968944099379      0.27483870967741936
+        nano exp_20260804_103551_job52880918_gemini_balfalse_neg0/results/out_bin_results.txt 
+        Overall 966     356     228     610     0.6095890410958904      0.36853002070393376     0.45935483870967747
+
+    * nano exp_20260804_113027_job52893913_gemini_baltrue_neg2/results/out_results.txt
+        Overall 966     457     529     509     0.4634888438133874      0.4730848861283644      0.4682377049180328
+        nano exp_20260804_113027_job52893913_gemini_baltrue_neg2/results/out_bin_results.txt
+        Overall 966     670     316     296     0.6795131845841785      0.6935817805383023      0.6864754098360656
+
+    * nano exp_20260804_113359_job52893973_biored_balfalse_neg0/results/out_results.txt
+        Overall 966     535     428     431     0.5555555555555556      0.5538302277432712      0.5546915500259202
+        nano exp_20260804_113359_job52893973_biored_balfalse_neg0/results/out_bin_results.txt
+        Overall 966     707     256     259     0.7341640706126688      0.7318840579710145      0.7330222913426647
+
+    * nano exp_20260804_113359_job52894019_biored_baltrue_neg2/results/out_results.txt
+        Overall 966     560     373     406     0.6002143622722401      0.5797101449275363      0.5897840968931017
+        nano exp_20260804_113359_job52894019_biored_baltrue_neg2/results/out_bin_results.txt
+        Overall 966     707     226     259     0.7577706323687031      0.7318840579710145      0.7446024223275408
+
+    * nano exp_20260817_165245_job55221256_gemini_biored_test_balfalse_neg0/results/out_results.txt
+        Overall 966     222     419     744     0.3463338533541342      0.22981366459627328     0.2762912258867455
+        nano exp_20260817_165245_job55221256_gemini_biored_test_balfalse_neg0/results/out_bin_results.txt
+        Overall 966     416     225     550     0.6489859594383776      0.4306418219461698      0.5177349097697573
+    
+    * nano exp_20260817_165245_job55221264_gemini_biored_test_baltrue_neg2/results/out_results.txt
+        Overall 966     494     465     472     0.5151199165797706      0.5113871635610766      0.5132467532467532
+        nano exp_20260817_165245_job55221264_gemini_biored_test_baltrue_neg2/results/out_bin_results.txt
+        Overall 966     678     281     288     0.7069864442127216      0.7018633540372671      0.7044155844155844
+
+* The evaluation above is not very comparable between gemini and biored annotations. Ran another batch of jobs, added the results above
+
+
+#### [Job 55221256] - Gemini annotations BioRED test all neg
+* **Command:** `sbatch scripts/submit_run_biored_gemini_neg_scale.sh gemini_biored_test false 0 "Gemini annotations BioRED test all neg"`
+
+#### [Job 55221264] - Gemini annotations BioRED test neg reduced 2:1
+* **Command:** `sbatch scripts/submit_run_biored_gemini_neg_scale.sh gemini_biored_test true 2 "Gemini annotations BioRED test neg reduced 2:1"`
+
+## 2026-08-18
+### Current Evaluation & Next Steps
+* To improve the coverage of Pubtator 3...
+    * The number of negative examples must be decreased. It may be worth the attempt to improve the quality of negative examples. Currently, all entity pairs without a specific relation type assigned are labeled as "no relation". Can consider limiting to entity pairs within the same sentence. At the sentence level, the number of entity pairs with a positive relation likely outnumber those with a negative relation. Whereas at the document/abstract level, the number of entity pairs with a negative relation would easily outnumber those with a positive relation.
+    * Only 5 entity type pairs are included for relation extraction. Many papers may not even have these entity pairs. Increasing the types of entities annotated and the entity pair types annotated would increase the coverage.
+* BERT models fine tuned on LLM annotations perform slightly worse than models fine tuned on BioRED annotations. This performance gap may be reduced by increasing the number of LLM annotations included in training and explicitly prompting the LLM to extract negative examples.  
+    * Another note I should make is about how I prompted Gemini. I gave Gemini the full list of entities and relations and asked it to perform extractions. I am not even giving it the full list of entity pairs. Just the entities. And I'm not limiting it to the sentence-level. 
+    * What if I broke it down to 1 API call per entity pair? This would match how BioREx works a lot better.
+    * I could also restrict the BioRED training and test sets to sentence level entity pairs only. This would allow me to compare between Gemini and BioRED.
+* Think about what the end goal of this is
+    * This will help me to determine what kind of entities need to be annotated. e.g. Biological processes may be interesting and helpful to have (i.e. proliferation, migration, invasion, apoptosis, necrosis). Gene ontology has a specific field called biological process. Scispacy is a good tool to perform NER and mapping to UMLS
+    * How important is it to have metadata associated with relation annotations? Is tracking the source of the relation sufficient?
+    * What other relation types would be important to include? Is association, positive association, negative association, no association sufficient?
+* One idea of a problem this project can tackle
+    * Genes often act in a context-specific way. There are tumor suppressor genes with oncogenic potential and oncogenic genes with tumor suppressive potential. https://pmc-ncbi-nlm-nih-gov.myaccess.library.utoronto.ca/articles/PMC7824251/
+    * One project could be to scower the literature for all such "dual agent" genes.
+    * I could also focus on AhR, and AhR target genes, and survey the literature to see which papers describe AhR target genes as promoting or inhibiting tumor cell invasion. As a way of figuring out in which context does AhR promote or inhibit invasion. 
+    * My assumptions: 
+        * Cell context varies drastically across the cells in the body, as well as in vivo vs in vitro. But the genes themselves likely do not change very much. 
+        * If LLM extracted triples are working well for training a BERT model on BioRED, what is stopping me from training a model on different LLM extracted relation labels? 
+    * Methodological literature review approach.
+    * Use of LLM to generate training data demonstration.
+    * Includes method and science application
+* Full text vs abstract. Is there really all the information you want in the abstract? For a literature review style project, it may be important to have the full text
+
+
+## 2026-08-19
+### Objective
+Look into BioRED negative relation annotations. How many of the entity pairs are truly cross-sentence or cross-document? If the vast majority are within the same sentence. I could add a step where I filter for just entity pairs within the same sentence. 
+
+### What I did
+* See code `01_pubtator_metrics.ipynb` section `Analysis of BioRED Negative Relations`
+* Of the entity pairs outside the same sentence, more than 95% are assigned to "none", whereas of the entity pairs within the same sentence, 63.7% are assigned none. I could probably just remove the entity pairs outside of the same sentence. 
+
+
+## 2026-08-20
+### Objective
+Attempt pair-wise extraction. This would force the LLM to explicitly assign the "None" relation when applicable rather than assuming "None" when no relation is assigned. 
+
+### What I did
+* Added to `02_LLM_RE.ipynb` a new `Pairwise LLM Extraction` section
+* To view batch job progress: https://console.cloud.google.com/agent-platform/batch-predictions?referrer=search&project=gen-lang-client-0862323043
+    * Tried doing caching with batch jobs but it wasnt working. Probably does work, just maybe not with Gemini-2.5-flash. Included the full prompt in each batch job. 
+    * Input tokens are cheap. Can try caching again in the future. Maybe not for now. 
+* Initially added the instruction to system instructions, but when I passed the entity lists in bulk I used user prompts. Switching back to user prompts
+* Answer accuracy is still not ideal
+    * Idea for improving accuracy: Switch to a newer more advanced model. And ask the model to provide a one-sentence rationale. Always use the most advanced models where cost allows. 
+    * With newer models I may be able to use cache. 
+
+### Conclusion
+Feeding in the entities pair-wise at a time may be too pricey. And it may not drastically boost performance. This was described in a previous paper: https://arxiv.org/pdf/2606.15412
+
+
